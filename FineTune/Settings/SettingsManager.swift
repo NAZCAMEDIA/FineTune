@@ -11,8 +11,9 @@ final class SettingsManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
-        var version: Int = 1
+        var version: Int = 2
         var appVolumes: [String: Float] = [:]
+        var appDeviceRouting: [String: String] = [:]  // bundleID → deviceUID
     }
 
     init(directory: URL? = nil) {
@@ -31,13 +32,26 @@ final class SettingsManager {
         scheduleSave()
     }
 
+    func getDeviceRouting(for identifier: String) -> String? {
+        settings.appDeviceRouting[identifier]
+    }
+
+    func setDeviceRouting(for identifier: String, deviceUID: String?) {
+        if let uid = deviceUID {
+            settings.appDeviceRouting[identifier] = uid
+        } else {
+            settings.appDeviceRouting.removeValue(forKey: identifier)
+        }
+        scheduleSave()
+    }
+
     private func loadFromDisk() {
         guard FileManager.default.fileExists(atPath: settingsURL.path) else { return }
 
         do {
             let data = try Data(contentsOf: settingsURL)
             settings = try JSONDecoder().decode(Settings.self, from: data)
-            logger.debug("Loaded settings with \(self.settings.appVolumes.count) app volumes")
+            logger.debug("Loaded settings with \(self.settings.appVolumes.count) volumes, \(self.settings.appDeviceRouting.count) device routings")
         } catch {
             logger.error("Failed to load settings: \(error.localizedDescription)")
             // Backup corrupted file before resetting
