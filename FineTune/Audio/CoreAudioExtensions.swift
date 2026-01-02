@@ -1,4 +1,5 @@
 // FineTune/Audio/CoreAudioExtensions.swift
+import AppKit
 import AudioToolbox
 import Foundation
 
@@ -98,3 +99,76 @@ extension AudioObjectID {
         try read(kAudioTapPropertyFormat, defaultValue: AudioStreamBasicDescription())
     }
 }
+
+// MARK: - Device List
+
+extension AudioObjectID {
+    static func readDeviceList() throws -> [AudioDeviceID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        var err = AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size)
+        guard err == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(err)) }
+
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: .unknown, count: count)
+        err = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceIDs)
+        guard err == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(err)) }
+        return deviceIDs
+    }
+}
+
+// MARK: - Device Properties
+
+extension AudioDeviceID {
+    func readDeviceName() throws -> String {
+        try readString(kAudioObjectPropertyName)
+    }
+
+    func hasOutputStreams() -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        let err = AudioObjectGetPropertyDataSize(self, &address, 0, nil, &size)
+        guard err == noErr else { return false }
+        return size > 0
+    }
+
+    func readDeviceIcon() -> NSImage? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyIcon,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var size: UInt32 = UInt32(MemoryLayout<CFString>.size)
+        var iconURL: Unmanaged<CFURL>?
+        let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &iconURL)
+
+        guard err == noErr, let url = iconURL?.takeRetainedValue() as URL? else {
+            return nil
+        }
+
+        return NSImage(contentsOf: url)
+    }
+
+    func isAggregateDevice() -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyClass,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var classID: AudioClassID = 0
+        var size = UInt32(MemoryLayout<AudioClassID>.size)
+        let err = AudioObjectGetPropertyData(self, &address, 0, nil, &size, &classID)
+        guard err == noErr else { return false }
+        return classID == kAudioAggregateDeviceClassID
+    }
+}
+
