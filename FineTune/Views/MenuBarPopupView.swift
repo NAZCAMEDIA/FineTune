@@ -3,19 +3,37 @@ import SwiftUI
 
 struct MenuBarPopupView: View {
     @Bindable var audioEngine: AudioEngine
-    @Bindable var systemVolumeMonitor: SystemVolumeMonitor
+    @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
+
+    /// Devices sorted with default device first, then alphabetically by name
+    private var sortedDevices: [AudioDevice] {
+        let devices = audioEngine.outputDevices
+        let defaultID = deviceVolumeMonitor.defaultDeviceID
+        return devices.sorted { lhs, rhs in
+            if lhs.id == defaultID { return true }
+            if rhs.id == defaultID { return false }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // System volume row
-            SystemVolumeRowView(
-                deviceName: systemVolumeMonitor.deviceName,
-                deviceIcon: systemVolumeMonitor.deviceIcon,
-                volume: systemVolumeMonitor.volume,
-                onVolumeChange: { volume in
-                    systemVolumeMonitor.setVolume(volume)
-                }
-            )
+            // Output Devices header
+            Text("Output Devices")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Device rows
+            ForEach(sortedDevices) { device in
+                DeviceVolumeRowView(
+                    device: device,
+                    volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
+                    isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
+                    onVolumeChange: { volume in
+                        deviceVolumeMonitor.setVolume(for: device.id, to: volume)
+                    }
+                )
+            }
 
             Divider()
 
