@@ -20,8 +20,8 @@ struct MenuBarPopupView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Output Devices header
             Text("Output Devices")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
 
             // Device rows
             ForEach(sortedDevices) { device in
@@ -52,6 +52,11 @@ struct MenuBarPopupView: View {
                 }
                 .padding(.vertical, 20)
             } else {
+                // Apps header
+                Text("Apps")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(audioEngine.apps) { app in
@@ -83,6 +88,6 @@ struct MenuBarPopupView: View {
             .font(.caption)
         }
         .padding()
-        .frame(width: 450)
+        .frame(width: 520)
     }
 }

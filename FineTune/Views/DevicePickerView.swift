@@ -69,16 +69,15 @@ struct DevicePickerView: View {
                 Text(displayName)
                     .font(.caption)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.secondary.opacity(0.15))
-            .cornerRadius(4)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.12))
+            .cornerRadius(6)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
     }
 }

@@ -39,11 +39,11 @@ struct DeviceVolumeRowView: View {
             Text(device.name)
                 .fontWeight(isDefault ? .semibold : .regular)
                 .lineLimit(1)
-                .frame(width: 80, alignment: .leading)
 
             // Slider
             Slider(value: $sliderValue, in: 0...1)
-                .frame(minWidth: 80)
+                .frame(minWidth: 120)
+                .tint(.white.opacity(0.7))
                 .onChange(of: sliderValue) { _, newValue in
                     onVolumeChange(Float(newValue))
                 }

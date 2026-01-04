@@ -38,10 +38,10 @@ struct AppVolumeRowView: View {
 
             Text(app.name)
                 .lineLimit(1)
-                .frame(width: 80, alignment: .leading)
 
             Slider(value: $sliderValue, in: 0...1)
-                .frame(minWidth: 80)
+                .frame(minWidth: 100)
+                .tint(.white.opacity(0.7))
                 .overlay(alignment: .center) {
                     // Unity marker at center (100% = native volume)
                     Rectangle()
@@ -65,7 +65,6 @@ struct AppVolumeRowView: View {
                 selectedDeviceUID: selectedDeviceUID,
                 onDeviceSelected: onDeviceSelected
             )
-            .frame(maxWidth: 120)
         }
         .onChange(of: volume) { _, newValue in
             sliderValue = VolumeMapping.gainToSlider(newValue)
