@@ -15,6 +15,10 @@ struct AppRow: View {
     let onMuteChange: (Bool) -> Void
     let onDeviceSelected: (String) -> Void
     let onAppActivate: () -> Void
+    let eqSettings: EQSettings
+    let onEQChange: (EQSettings) -> Void
+    let isEQExpanded: Bool
+    let onEQToggle: () -> Void
 
     @State private var sliderValue: Double  // 0-1, log-mapped position
     @State private var isEditing = false
@@ -26,6 +30,9 @@ struct AppRow: View {
     /// Default volume to restore when unmuting from 0 (50% = unity gain)
     private let defaultUnmuteVolume: Double = 0.5
 
+    /// Fixed height for EQ panel (header ~24 + spacing 10 + sliders 100 + padding 20 + top margin 8)
+    private let eqPanelHeight: CGFloat = 165
+
     init(
         app: AudioApp,
         volume: Float,
@@ -36,7 +43,11 @@ struct AppRow: View {
         onVolumeChange: @escaping (Float) -> Void,
         onMuteChange: @escaping (Bool) -> Void,
         onDeviceSelected: @escaping (String) -> Void,
-        onAppActivate: @escaping () -> Void
+        onAppActivate: @escaping () -> Void = {},
+        eqSettings: EQSettings = EQSettings(),
+        onEQChange: @escaping (EQSettings) -> Void = { _ in },
+        isEQExpanded: Bool = false,
+        onEQToggle: @escaping () -> Void = {}
     ) {
         self.app = app
         self.volume = volume
@@ -48,88 +59,124 @@ struct AppRow: View {
         self.onMuteChange = onMuteChange
         self.onDeviceSelected = onDeviceSelected
         self.onAppActivate = onAppActivate
+        self.eqSettings = eqSettings
+        self.onEQChange = onEQChange
+        self.isEQExpanded = isEQExpanded
+        self.onEQToggle = onEQToggle
         // Convert linear gain to slider position
         self._sliderValue = State(initialValue: VolumeMapping.gainToSlider(volume))
     }
 
     var body: some View {
-        HStack(spacing: DesignTokens.Spacing.sm) {
-            // App icon - clickable to activate app
-            Image(nsImage: app.icon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: DesignTokens.Dimensions.iconSize, height: DesignTokens.Dimensions.iconSize)
-                .opacity(isIconHovered ? 0.7 : 1.0)
-                .onHover { hovering in
-                    isIconHovered = hovering
-                    if hovering {
-                        NSCursor.pointingHand.push()
-                    } else {
-                        NSCursor.pop()
-                    }
-                }
-                .onTapGesture {
-                    onAppActivate()
-                }
-
-            // App name - expands to fill available space
-            Text(app.name)
-                .font(DesignTokens.Typography.rowName)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Controls section - fixed width so sliders align across rows
+        VStack(spacing: 0) {
+            // Main row content
             HStack(spacing: DesignTokens.Spacing.sm) {
-                // Mute button
-                MuteButton(isMuted: showMutedIcon) {
-                    if showMutedIcon {
-                        // Unmute: restore to default if at 0
-                        if sliderValue == 0 {
-                            sliderValue = defaultUnmuteVolume
+                // App icon - clickable to activate app
+                Image(nsImage: app.icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: DesignTokens.Dimensions.iconSize, height: DesignTokens.Dimensions.iconSize)
+                    .opacity(isIconHovered ? 0.7 : 1.0)
+                    .onHover { hovering in
+                        isIconHovered = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
                         }
-                        onMuteChange(false)
-                    } else {
-                        // Mute
-                        onMuteChange(true)
                     }
+                    .onTapGesture {
+                        onAppActivate()
+                    }
+
+                // App name - expands to fill available space
+                Text(app.name)
+                    .font(DesignTokens.Typography.rowName)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Controls section - fixed width so sliders align across rows
+                HStack(spacing: DesignTokens.Spacing.sm) {
+                    // Mute button
+                    MuteButton(isMuted: showMutedIcon) {
+                        if showMutedIcon {
+                            // Unmute: restore to default if at 0
+                            if sliderValue == 0 {
+                                sliderValue = defaultUnmuteVolume
+                            }
+                            onMuteChange(false)
+                        } else {
+                            // Mute
+                            onMuteChange(true)
+                        }
+                    }
+
+                    // EQ button
+                    Button {
+                        onEQToggle()
+                    } label: {
+                        Image(systemName: "slider.vertical.3")
+                            .font(.system(size: 12))
+                            .foregroundColor(isEQExpanded ? .accentColor : (eqSettings.isEnabled ? .accentColor.opacity(0.7) : .secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Equalizer")
+
+                    // Volume slider with unity marker
+                    MinimalSlider(
+                        value: $sliderValue,
+                        showUnityMarker: true,
+                        onEditingChanged: { editing in
+                            isEditing = editing
+                        }
+                    )
+                    .frame(width: DesignTokens.Dimensions.sliderWidth)
+                    .opacity(showMutedIcon ? 0.5 : 1.0)
+                    .onChange(of: sliderValue) { _, newValue in
+                        let gain = VolumeMapping.sliderToGain(newValue)
+                        onVolumeChange(gain)
+                        // Auto-unmute when slider moved while muted
+                        if isMutedExternal {
+                            onMuteChange(false)
+                        }
+                    }
+
+                    // Volume percentage (0-200% matching slider position)
+                    Text("\(Int(sliderValue * 200))%")
+                        .percentageStyle()
+
+                    // VU Meter (shows gray bars when muted or volume is 0)
+                    VUMeter(level: audioLevel, isMuted: showMutedIcon)
+
+                    // Device picker - takes remaining space in controls
+                    DevicePicker(
+                        devices: devices,
+                        selectedDeviceUID: selectedDeviceUID,
+                        onDeviceSelected: onDeviceSelected
+                    )
                 }
-
-                // Volume slider with unity marker
-                MinimalSlider(
-                    value: $sliderValue,
-                    showUnityMarker: true,
-                    onEditingChanged: { editing in
-                        isEditing = editing
-                    }
-                )
-                .frame(width: DesignTokens.Dimensions.sliderWidth)
-                .opacity(showMutedIcon ? 0.5 : 1.0)
-                .onChange(of: sliderValue) { _, newValue in
-                    let gain = VolumeMapping.sliderToGain(newValue)
-                    onVolumeChange(gain)
-                    // Auto-unmute when slider moved while muted
-                    if isMutedExternal {
-                        onMuteChange(false)
-                    }
-                }
-
-                // Volume percentage (0-200% matching slider position)
-                Text("\(Int(sliderValue * 200))%")
-                    .percentageStyle()
-
-                // VU Meter (shows gray bars when muted or volume is 0)
-                VUMeter(level: audioLevel, isMuted: showMutedIcon)
-
-                // Device picker - takes remaining space in controls
-                DevicePicker(
-                    devices: devices,
-                    selectedDeviceUID: selectedDeviceUID,
-                    onDeviceSelected: onDeviceSelected
-                )
+                .frame(width: DesignTokens.Dimensions.controlsWidth)
             }
-            .frame(width: DesignTokens.Dimensions.controlsWidth)
+            .frame(height: DesignTokens.Dimensions.rowContentHeight)
+
+            // Expandable EQ panel - hardcoded height for smooth animation
+            EQPanelView(
+                settings: Binding(
+                    get: { eqSettings },
+                    set: { onEQChange($0) }
+                ),
+                onPresetSelected: { preset in
+                    onEQChange(preset.settings)
+                },
+                onSettingsChanged: { settings in
+                    onEQChange(settings)
+                }
+            )
+            .padding(.top, DesignTokens.Spacing.sm)
+            .frame(height: isEQExpanded ? eqPanelHeight : 0, alignment: .top)
+            .opacity(isEQExpanded ? 1 : 0)
+            .allowsHitTesting(isEQExpanded)
         }
-        .frame(height: DesignTokens.Dimensions.rowContentHeight)
         .hoverableRow()
         .onChange(of: volume) { _, newValue in
             // Only sync from external changes when user is NOT dragging
@@ -153,9 +200,45 @@ struct AppRowWithLevelPolling: View {
     let onMuteChange: (Bool) -> Void
     let onDeviceSelected: (String) -> Void
     let onAppActivate: () -> Void
+    let eqSettings: EQSettings
+    let onEQChange: (EQSettings) -> Void
+    let isEQExpanded: Bool
+    let onEQToggle: () -> Void
 
     @State private var displayLevel: Float = 0
     @State private var levelTimer: Timer?
+
+    init(
+        app: AudioApp,
+        volume: Float,
+        isMuted: Bool,
+        devices: [AudioDevice],
+        selectedDeviceUID: String,
+        getAudioLevel: @escaping () -> Float,
+        onVolumeChange: @escaping (Float) -> Void,
+        onMuteChange: @escaping (Bool) -> Void,
+        onDeviceSelected: @escaping (String) -> Void,
+        onAppActivate: @escaping () -> Void = {},
+        eqSettings: EQSettings = EQSettings(),
+        onEQChange: @escaping (EQSettings) -> Void = { _ in },
+        isEQExpanded: Bool = false,
+        onEQToggle: @escaping () -> Void = {}
+    ) {
+        self.app = app
+        self.volume = volume
+        self.isMuted = isMuted
+        self.devices = devices
+        self.selectedDeviceUID = selectedDeviceUID
+        self.getAudioLevel = getAudioLevel
+        self.onVolumeChange = onVolumeChange
+        self.onMuteChange = onMuteChange
+        self.onDeviceSelected = onDeviceSelected
+        self.onAppActivate = onAppActivate
+        self.eqSettings = eqSettings
+        self.onEQChange = onEQChange
+        self.isEQExpanded = isEQExpanded
+        self.onEQToggle = onEQToggle
+    }
 
     var body: some View {
         AppRow(
@@ -168,7 +251,11 @@ struct AppRowWithLevelPolling: View {
             onVolumeChange: onVolumeChange,
             onMuteChange: onMuteChange,
             onDeviceSelected: onDeviceSelected,
-            onAppActivate: onAppActivate
+            onAppActivate: onAppActivate,
+            eqSettings: eqSettings,
+            onEQChange: onEQChange,
+            isEQExpanded: isEQExpanded,
+            onEQToggle: onEQToggle
         )
         .onAppear {
             startLevelPolling()
@@ -206,8 +293,7 @@ struct AppRowWithLevelPolling: View {
                 selectedDeviceUID: MockData.sampleDevices[0].uid,
                 onVolumeChange: { _ in },
                 onMuteChange: { _ in },
-                onDeviceSelected: { _ in },
-                onAppActivate: {}
+                onDeviceSelected: { _ in }
             )
 
             AppRow(
@@ -218,8 +304,7 @@ struct AppRowWithLevelPolling: View {
                 selectedDeviceUID: MockData.sampleDevices[1].uid,
                 onVolumeChange: { _ in },
                 onMuteChange: { _ in },
-                onDeviceSelected: { _ in },
-                onAppActivate: {}
+                onDeviceSelected: { _ in }
             )
 
             AppRow(
@@ -230,8 +315,7 @@ struct AppRowWithLevelPolling: View {
                 selectedDeviceUID: MockData.sampleDevices[2].uid,
                 onVolumeChange: { _ in },
                 onMuteChange: { _ in },
-                onDeviceSelected: { _ in },
-                onAppActivate: {}
+                onDeviceSelected: { _ in }
             )
         }
     }
@@ -249,8 +333,7 @@ struct AppRowWithLevelPolling: View {
                     selectedDeviceUID: MockData.sampleDevices.randomElement()!.uid,
                     onVolumeChange: { _ in },
                     onMuteChange: { _ in },
-                    onDeviceSelected: { _ in },
-                    onAppActivate: {}
+                    onDeviceSelected: { _ in }
                 )
             }
         }
