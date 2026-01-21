@@ -673,6 +673,14 @@ final class ProcessTapController {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create aggregate: \(err)"])
         }
 
+        // Wait for aggregate to become ready (fallback path)
+        guard newAggregateID.waitUntilReady(timeout: 2.0) else {
+            AudioHardwareDestroyAggregateDevice(newAggregateID)
+            AudioHardwareDestroyProcessTap(newTapID)
+            throw NSError(domain: "ProcessTapController", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Aggregate device not ready within timeout"])
+        }
+
         // STEP 3: Create and start IO proc for new aggregate
         var newDeviceProcID: AudioDeviceIOProcID?
         err = AudioDeviceCreateIOProcIDWithBlock(&newDeviceProcID, newAggregateID, queue) { [weak self] _, inInputData, _, outOutputData, _ in
