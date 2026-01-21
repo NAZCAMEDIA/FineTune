@@ -195,6 +195,13 @@ final class ProcessTapController {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err), userInfo: [NSLocalizedDescriptionKey: "Failed to create aggregate device: \(err)"])
         }
 
+        // Wait for aggregate device to become ready before querying properties
+        // Uses CFRunLoopRunInMode to process HAL events during wait
+        guard aggregateDeviceID.waitUntilReady(timeout: 2.0) else {
+            cleanupPartialActivation()
+            throw NSError(domain: "ProcessTapController", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aggregate device not ready within timeout"])
+        }
+
         logger.debug("Created aggregate device #\(self.aggregateDeviceID)")
 
         // Compute ramp coefficient from actual device sample rate
