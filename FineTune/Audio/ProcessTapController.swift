@@ -441,6 +441,18 @@ final class ProcessTapController {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(err),
                           userInfo: [NSLocalizedDescriptionKey: "Failed to create secondary aggregate: \(err)"])
         }
+
+        // Wait for secondary aggregate to become ready
+        // Critical for Bluetooth devices which may have variable initialization time
+        guard secondaryAggregateID.waitUntilReady(timeout: 2.0) else {
+            AudioHardwareDestroyAggregateDevice(secondaryAggregateID)
+            AudioHardwareDestroyProcessTap(secondaryTapID)
+            secondaryAggregateID = .unknown
+            secondaryTapID = .unknown
+            throw NSError(domain: "ProcessTapController", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Secondary aggregate device not ready within timeout"])
+        }
+
         logger.debug("[CROSSFADE] Created secondary aggregate #\(self.secondaryAggregateID)")
 
         // Initialize sample-accurate crossfade timing from secondary device sample rate
