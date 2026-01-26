@@ -132,12 +132,11 @@ jobs:
           # Verify stapling
           xcrun stapler validate "build/$DMG_NAME"
 
-      - name: Sign DMG for Sparkle and update appcast
+      - name: Update appcast with Sparkle
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          DMG_PATH="build/$DMG_NAME"
 
           # Download Sparkle tools
           SPARKLE_VERSION="2.8.1"
@@ -145,30 +144,22 @@ jobs:
           mkdir -p sparkle_tools
           tar -xf sparkle.tar.xz -C sparkle_tools
 
-          # Get DMG size
-          DMG_SIZE=$(stat -f%z "$DMG_PATH")
+          # Write private key to temp file (generate_appcast reads from file)
+          echo -n "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle_private_key"
 
-          # Sign DMG with EdDSA key (use -f - to read key from stdin)
-          ED_SIGNATURE=$(echo -n "$SPARKLE_PRIVATE_KEY" | sparkle_tools/bin/sign_update -f - "$DMG_PATH")
+          # Create Release folder with the DMG (generate_appcast scans this folder)
+          mkdir -p Release
+          cp "build/$DMG_NAME" "Release/"
 
-          # Get current date in RFC 2822 format
-          PUB_DATE=$(date -R)
+          # Run generate_appcast to update appcast.xml with proper EdDSA signature
+          sparkle_tools/bin/generate_appcast \
+            --ed-key-file "$RUNNER_TEMP/sparkle_private_key" \
+            --download-url-prefix "https://github.com/ronitsingh10/FineTune/releases/download/v${VERSION}/" \
+            -o appcast.xml \
+            Release/
 
-          # Create new item entry using printf to avoid YAML parsing issues
-          NEW_ITEM=$(printf '    <item>\n      <title>Version %s</title>\n      <sparkle:version>%s</sparkle:version>\n      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n      <pubDate>%s</pubDate>\n      <enclosure\n        url="https://github.com/ronitsingh10/FineTune/releases/download/v%s/FineTune-%s.dmg"\n        sparkle:edSignature="%s"\n        length="%s"\n        type="application/octet-stream"/>\n      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>\n    </item>' "$VERSION" "$VERSION" "$VERSION" "$PUB_DATE" "$VERSION" "$VERSION" "$ED_SIGNATURE" "$DMG_SIZE")
-
-          # Insert new item after the comment block in appcast.xml
-          # Using awk to insert after the closing comment
-          awk -v item="$NEW_ITEM" '
-            /^[[:space:]]*-->/ && !inserted {
-              print
-              print item
-              inserted=1
-              next
-            }
-            {print}
-          ' appcast.xml > appcast_new.xml
-          mv appcast_new.xml appcast.xml
+          # Clean up private key
+          rm -f "$RUNNER_TEMP/sparkle_private_key"
 
           echo "Updated appcast.xml with version ${VERSION}"
           cat appcast.xml
