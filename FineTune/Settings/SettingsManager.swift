@@ -1,6 +1,50 @@
 // FineTune/Settings/SettingsManager.swift
 import Foundation
 import os
+import ServiceManagement
+
+// MARK: - App-Wide Settings Enums
+
+enum MenuBarIconStyle: String, Codable, CaseIterable, Identifiable {
+    case `default` = "Default"
+    case speaker = "Speaker"
+    case waveform = "Waveform"
+    case equalizer = "Equalizer"
+
+    var id: String { rawValue }
+
+    /// The icon name - either asset catalog name or SF Symbol
+    var iconName: String {
+        switch self {
+        case .default: return "MenuBarIcon"
+        case .speaker: return "speaker.wave.2"
+        case .waveform: return "waveform"
+        case .equalizer: return "slider.vertical.3"
+        }
+    }
+
+    /// Whether this uses an SF Symbol (vs asset catalog image)
+    var isSystemSymbol: Bool {
+        self != .default
+    }
+}
+
+// MARK: - App-Wide Settings Model
+
+struct AppSettings: Codable, Equatable {
+    // General
+    var launchAtLogin: Bool = false
+    var menuBarIconStyle: MenuBarIconStyle = .default
+
+    // Audio
+    var defaultNewAppVolume: Float = 1.0      // 100% (unity gain)
+    var maxVolumeBoost: Float = 2.0           // 200% max
+
+    // Notifications
+    var showDeviceDisconnectAlerts: Bool = true
+}
+
+// MARK: - Settings Manager
 
 @Observable
 @MainActor
@@ -11,11 +55,12 @@ final class SettingsManager {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "FineTune", category: "SettingsManager")
 
     struct Settings: Codable {
-        var version: Int = 4
+        var version: Int = 5
         var appVolumes: [String: Float] = [:]
         var appDeviceRouting: [String: String] = [:]  // bundleID → deviceUID
         var appMutes: [String: Bool] = [:]  // bundleID → isMuted
         var appEQSettings: [String: EQSettings] = [:]  // bundleID → EQ settings
+        var appSettings: AppSettings = AppSettings()  // App-wide settings
     }
 
     init(directory: URL? = nil) {
@@ -70,6 +115,57 @@ final class SettingsManager {
     func setEQSettings(_ eqSettings: EQSettings, for appIdentifier: String) {
         settings.appEQSettings[appIdentifier] = eqSettings
         scheduleSave()
+    }
+
+    // MARK: - App-Wide Settings
+
+    var appSettings: AppSettings {
+        settings.appSettings
+    }
+
+    func updateAppSettings(_ newSettings: AppSettings) {
+        // Handle launch at login separately via ServiceManagement
+        if newSettings.launchAtLogin != settings.appSettings.launchAtLogin {
+            setLaunchAtLogin(newSettings.launchAtLogin)
+        }
+        settings.appSettings = newSettings
+        scheduleSave()
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+                logger.info("Registered for launch at login")
+            } else {
+                try SMAppService.mainApp.unregister()
+                logger.info("Unregistered from launch at login")
+            }
+        } catch {
+            logger.error("Failed to set launch at login: \(error.localizedDescription)")
+        }
+    }
+
+    /// Returns the actual launch at login status from the system
+    var isLaunchAtLoginEnabled: Bool {
+        SMAppService.mainApp.status == .enabled
+    }
+
+    // MARK: - Reset All Settings
+
+    /// Resets all per-app settings and app-wide settings to defaults
+    func resetAllSettings() {
+        settings.appVolumes.removeAll()
+        settings.appDeviceRouting.removeAll()
+        settings.appMutes.removeAll()
+        settings.appEQSettings.removeAll()
+        settings.appSettings = AppSettings()
+
+        // Also unregister from launch at login
+        try? SMAppService.mainApp.unregister()
+
+        scheduleSave()
+        logger.info("Reset all settings to defaults")
     }
 
     private func loadFromDisk() {
