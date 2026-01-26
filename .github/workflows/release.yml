@@ -154,22 +154,8 @@ jobs:
           # Get current date in RFC 2822 format
           PUB_DATE=$(date -R)
 
-          # Create new item entry
-          NEW_ITEM=$(cat <<EOF
-    <item>
-      <title>Version ${VERSION}</title>
-      <sparkle:version>${VERSION}</sparkle:version>
-      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-      <pubDate>${PUB_DATE}</pubDate>
-      <enclosure
-        url="https://github.com/ronitsingh10/FineTune/releases/download/v${VERSION}/FineTune-${VERSION}.dmg"
-        sparkle:edSignature="${ED_SIGNATURE}"
-        length="${DMG_SIZE}"
-        type="application/octet-stream"/>
-      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-    </item>
-EOF
-          )
+          # Create new item entry using printf to avoid YAML parsing issues
+          NEW_ITEM=$(printf '    <item>\n      <title>Version %s</title>\n      <sparkle:version>%s</sparkle:version>\n      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n      <pubDate>%s</pubDate>\n      <enclosure\n        url="https://github.com/ronitsingh10/FineTune/releases/download/v%s/FineTune-%s.dmg"\n        sparkle:edSignature="%s"\n        length="%s"\n        type="application/octet-stream"/>\n      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>\n    </item>' "$VERSION" "$VERSION" "$VERSION" "$PUB_DATE" "$VERSION" "$VERSION" "$ED_SIGNATURE" "$DMG_SIZE")
 
           # Insert new item after the comment block in appcast.xml
           # Using awk to insert after the closing comment
