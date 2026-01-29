@@ -118,6 +118,15 @@ final class AudioEngine {
         logger.info("AudioEngine stopped")
     }
 
+    /// Explicit shutdown for app termination. Ensures all listeners are cleaned up.
+    /// Call from applicationWillTerminate or equivalent lifecycle hook.
+    /// Note: For menu bar apps, process exit cleans up resources anyway, so this is optional.
+    func shutdown() {
+        stop()
+        deviceVolumeMonitor.stop()
+        logger.info("AudioEngine shutdown complete")
+    }
+
     func setVolume(for app: AudioApp, to volume: Float) {
         volumeState.setVolume(for: app.id, to: volume, identifier: app.persistenceIdentifier)
         if let deviceUID = appDeviceRouting[app.id] {
