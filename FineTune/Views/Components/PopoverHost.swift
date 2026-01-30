@@ -21,6 +21,9 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
         if isPresented {
             if context.coordinator.panel == nil {
                 context.coordinator.showPanel(from: nsView, content: content)
+            } else {
+                // Update content when state changes while panel is open
+                context.coordinator.updateContent(content)
             }
         } else {
             context.coordinator.dismissPanel()
@@ -34,6 +37,7 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
     class Coordinator: NSObject {
         @Binding var isPresented: Bool
         var panel: NSPanel?
+        var hostingView: NSView?  // Store reference for updates
         var localEventMonitor: Any?
         var globalEventMonitor: Any?
         var appDeactivateObserver: NSObjectProtocol?
@@ -61,10 +65,11 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
             panel.becomesKeyOnlyIfNeeded = true
 
             // Create hosting view with content, forcing dark color scheme
-            let hostingView = NSHostingView(rootView: content().preferredColorScheme(.dark))
-            hostingView.frame.size = hostingView.fittingSize
-            panel.contentView = hostingView
-            panel.setContentSize(hostingView.fittingSize)
+            let hosting = NSHostingView(rootView: content().preferredColorScheme(.dark))
+            hosting.frame.size = hosting.fittingSize
+            panel.contentView = hosting
+            panel.setContentSize(hosting.fittingSize)
+            self.hostingView = hosting
 
             // Position below trigger
             let parentFrame = parentView.convert(parentView.bounds, to: nil)
@@ -109,6 +114,20 @@ struct PopoverHost<Content: View>: NSViewRepresentable {
                 queue: .main
             ) { [weak self] _ in
                 self?.dismissPanel()
+            }
+        }
+
+        func updateContent<V: View>(_ content: () -> V) {
+            guard let panel = panel else { return }
+            // Create new hosting view with updated content
+            let newHosting = NSHostingView(rootView: content().preferredColorScheme(.dark))
+            let newSize = newHosting.fittingSize
+            newHosting.frame.size = newSize
+            panel.contentView = newHosting
+            self.hostingView = newHosting
+            // Resize panel if content size changed
+            if panel.frame.size != newSize {
+                panel.setContentSize(newSize)
             }
         }
 
