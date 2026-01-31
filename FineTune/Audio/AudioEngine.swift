@@ -24,6 +24,10 @@ final class AudioEngine {
         deviceMonitor.outputDevices
     }
 
+    var inputDevices: [AudioDevice] {
+        deviceMonitor.inputDevices
+    }
+
     init(settingsManager: SettingsManager? = nil) {
         let manager = settingsManager ?? SettingsManager()
         self.settingsManager = manager
@@ -74,6 +78,14 @@ final class AudioEngine {
 
             deviceMonitor.onDeviceConnected = { [weak self] deviceUID, deviceName in
                 self?.handleDeviceConnected(deviceUID, name: deviceName)
+            }
+
+            deviceMonitor.onInputDeviceDisconnected = { [weak self] deviceUID, deviceName in
+                self?.logger.info("Input device disconnected: \(deviceName) (\(deviceUID))")
+            }
+
+            deviceMonitor.onInputDeviceConnected = { [weak self] deviceUID, deviceName in
+                self?.logger.info("Input device connected: \(deviceName) (\(deviceUID))")
             }
 
             deviceVolumeMonitor.onDefaultDeviceChanged = { [weak self] newDefaultUID in
