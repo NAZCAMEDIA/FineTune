@@ -9,8 +9,14 @@ struct MenuBarPopupView: View {
     /// Icon style that was applied at app launch (for restart-required detection)
     let launchIconStyle: MenuBarIconStyle
 
-    /// Memoized sorted devices - only recomputed when device list or default changes
+    /// Memoized sorted output devices - only recomputed when device list or default changes
     @State private var sortedDevices: [AudioDevice] = []
+
+    /// Memoized sorted input devices
+    @State private var sortedInputDevices: [AudioDevice] = []
+
+    /// Which device tab is selected (false = output, true = input)
+    @State private var showingInputDevices = false
 
     /// Track which app has its EQ panel expanded (only one at a time)
     @State private var expandedEQAppID: pid_t?
@@ -30,6 +36,9 @@ struct MenuBarPopupView: View {
     /// Local copy of app settings for binding
     @State private var localAppSettings: AppSettings = AppSettings()
 
+    /// Namespace for device toggle animation
+    @Namespace private var deviceToggleNamespace
+
     // MARK: - Scroll Thresholds
 
     /// Number of devices before scroll kicks in
@@ -43,10 +52,16 @@ struct MenuBarPopupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            // Header row - always visible, title changes based on state
-            HStack {
-                Text(isSettingsOpen ? "Settings" : "Output Devices")
-                    .sectionHeaderStyle()
+            // Header row - always visible, shows tabs or Settings title
+            HStack(alignment: .top) {
+                if isSettingsOpen {
+                    Text("Settings")
+                        .sectionHeaderStyle()
+                } else {
+                    deviceTabsHeader
+                    Spacer()
+                    defaultDevicesStatus
+                }
                 Spacer()
                 settingsButton
             }
@@ -83,10 +98,14 @@ struct MenuBarPopupView: View {
         .environment(\.colorScheme, .dark)
         .onAppear {
             updateSortedDevices()
+            updateSortedInputDevices()
             localAppSettings = audioEngine.settingsManager.appSettings
         }
         .onChange(of: audioEngine.outputDevices) { _, _ in
             updateSortedDevices()
+        }
+        .onChange(of: audioEngine.inputDevices) { _, _ in
+            updateSortedInputDevices()
         }
         .onChange(of: localAppSettings) { _, newValue in
             audioEngine.settingsManager.updateAppSettings(newValue)
@@ -112,23 +131,16 @@ struct MenuBarPopupView: View {
         Button {
             toggleSettings()
         } label: {
-            ZStack {
-                Image(systemName: "gearshape.fill")
-                    .opacity(isSettingsOpen ? 0 : 1)
-                    .rotationEffect(.degrees(isSettingsOpen ? 90 : 0))
-
-                Image(systemName: "xmark")
-                    .opacity(isSettingsOpen ? 1 : 0)
-                    .rotationEffect(.degrees(isSettingsOpen ? 0 : -90))
-            }
-            .font(.system(size: 12))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(DesignTokens.Colors.interactiveDefault)
-            .frame(
-                minWidth: DesignTokens.Dimensions.minTouchTarget,
-                minHeight: DesignTokens.Dimensions.minTouchTarget
-            )
-            .contentShape(Rectangle())
+            Image(systemName: isSettingsOpen ? "xmark" : "gearshape.fill")
+                .font(.system(size: 12, weight: isSettingsOpen ? .bold : .regular))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(DesignTokens.Colors.interactiveDefault)
+                .rotationEffect(.degrees(isSettingsOpen ? 90 : 0))
+                .frame(
+                    minWidth: DesignTokens.Dimensions.minTouchTarget,
+                    minHeight: DesignTokens.Dimensions.minTouchTarget
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isSettingsOpen)
@@ -151,7 +163,7 @@ struct MenuBarPopupView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        // Output Devices section
+        // Devices section (tabbed: Output / Input)
         devicesSection
 
         Divider()
@@ -180,11 +192,127 @@ struct MenuBarPopupView: View {
         }
     }
 
+    // MARK: - Default Devices Status
+
+    /// Name of the current default output device
+    private var defaultOutputDeviceName: String {
+        guard let uid = deviceVolumeMonitor.defaultDeviceUID,
+              let device = sortedDevices.first(where: { $0.uid == uid }) else {
+            return "No Output"
+        }
+        return device.name
+    }
+
+    /// Name of the current default input device
+    private var defaultInputDeviceName: String {
+        guard let uid = deviceVolumeMonitor.defaultInputDeviceUID,
+              let device = sortedInputDevices.first(where: { $0.uid == uid }) else {
+            return "No Input"
+        }
+        return device.name
+    }
+
+    /// Subtle display of both default devices in header
+    private var defaultDevicesStatus: some View {
+        HStack(spacing: DesignTokens.Spacing.xs) {
+            // Output device
+            HStack(spacing: 3) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 9))
+                Text(defaultOutputDeviceName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            // Separator
+            Text("·")
+
+            // Input device
+            HStack(spacing: 3) {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 9))
+                Text(defaultInputDeviceName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(DesignTokens.Colors.textSecondary)
+    }
+
+    // MARK: - Device Toggle
+
+    /// Icon-only pill toggle for switching between Output and Input devices
+    private var deviceTabsHeader: some View {
+        let iconSize: CGFloat = 13
+        let buttonSize: CGFloat = 26
+
+        return HStack(spacing: 2) {
+            // Output (speaker) button
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    showingInputDevices = false
+                }
+            } label: {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: iconSize, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(showingInputDevices ? DesignTokens.Colors.textTertiary : DesignTokens.Colors.textPrimary)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background {
+                        if !showingInputDevices {
+                            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                                .fill(.white.opacity(0.1))
+                                .matchedGeometryEffect(id: "deviceToggle", in: deviceToggleNamespace)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Output Devices")
+
+            // Input (mic) button
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    showingInputDevices = true
+                }
+            } label: {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: iconSize, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(showingInputDevices ? DesignTokens.Colors.textPrimary : DesignTokens.Colors.textTertiary)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background {
+                        if showingInputDevices {
+                            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius)
+                                .fill(.white.opacity(0.1))
+                                .matchedGeometryEffect(id: "deviceToggle", in: deviceToggleNamespace)
+                        }
+                    }
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Input Devices")
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius + 3)
+                .fill(.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignTokens.Dimensions.buttonRadius + 3)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                )
+        )
+    }
+
     // MARK: - Subviews
 
     @ViewBuilder
     private var devicesSection: some View {
-        if sortedDevices.count > deviceScrollThreshold {
+        let devices = showingInputDevices ? sortedInputDevices : sortedDevices
+        let threshold = deviceScrollThreshold
+
+        if devices.count > threshold {
             ScrollView {
                 devicesContent
             }
@@ -197,23 +325,44 @@ struct MenuBarPopupView: View {
 
     private var devicesContent: some View {
         VStack(spacing: DesignTokens.Spacing.xs) {
-            ForEach(sortedDevices) { device in
-                DeviceRow(
-                    device: device,
-                    isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
-                    volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
-                    isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
-                    onSetDefault: {
-                        deviceVolumeMonitor.setDefaultDevice(device.id)
-                    },
-                    onVolumeChange: { volume in
-                        deviceVolumeMonitor.setVolume(for: device.id, to: volume)
-                    },
-                    onMuteToggle: {
-                        let currentMute = deviceVolumeMonitor.muteStates[device.id] ?? false
-                        deviceVolumeMonitor.setMute(for: device.id, to: !currentMute)
-                    }
-                )
+            if showingInputDevices {
+                ForEach(sortedInputDevices) { device in
+                    InputDeviceRow(
+                        device: device,
+                        isDefault: device.id == deviceVolumeMonitor.defaultInputDeviceID,
+                        volume: deviceVolumeMonitor.inputVolumes[device.id] ?? 1.0,
+                        isMuted: deviceVolumeMonitor.inputMuteStates[device.id] ?? false,
+                        onSetDefault: {
+                            deviceVolumeMonitor.setDefaultInputDevice(device.id)
+                        },
+                        onVolumeChange: { volume in
+                            deviceVolumeMonitor.setInputVolume(for: device.id, to: volume)
+                        },
+                        onMuteToggle: {
+                            let currentMute = deviceVolumeMonitor.inputMuteStates[device.id] ?? false
+                            deviceVolumeMonitor.setInputMute(for: device.id, to: !currentMute)
+                        }
+                    )
+                }
+            } else {
+                ForEach(sortedDevices) { device in
+                    DeviceRow(
+                        device: device,
+                        isDefault: device.id == deviceVolumeMonitor.defaultDeviceID,
+                        volume: deviceVolumeMonitor.volumes[device.id] ?? 1.0,
+                        isMuted: deviceVolumeMonitor.muteStates[device.id] ?? false,
+                        onSetDefault: {
+                            deviceVolumeMonitor.setDefaultDevice(device.id)
+                        },
+                        onVolumeChange: { volume in
+                            deviceVolumeMonitor.setVolume(for: device.id, to: volume)
+                        },
+                        onMuteToggle: {
+                            let currentMute = deviceVolumeMonitor.muteStates[device.id] ?? false
+                            deviceVolumeMonitor.setMute(for: device.id, to: !currentMute)
+                        }
+                    )
+                }
             }
         }
     }
@@ -329,10 +478,18 @@ struct MenuBarPopupView: View {
 
     // MARK: - Helpers
 
-    /// Recomputes sorted devices - alphabetical order only (no "default first" reordering)
+    /// Recomputes sorted output devices - alphabetical order only (no "default first" reordering)
     private func updateSortedDevices() {
         let devices = audioEngine.outputDevices
         sortedDevices = devices.sorted { lhs, rhs in
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    /// Recomputes sorted input devices - alphabetical order
+    private func updateSortedInputDevices() {
+        let devices = audioEngine.inputDevices
+        sortedInputDevices = devices.sorted { lhs, rhs in
             lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
     }
